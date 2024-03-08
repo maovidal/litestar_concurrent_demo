@@ -31,14 +31,14 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def manage_client_lifespan(app: Litestar) -> AsyncGenerator[None, None]:
     """
-    Runs an instance of the Clients A and B
+    Runs instances of the Clients A and B
     """
     # Set an instance of the Shared Repository if it does not exists already
     repo = getattr(app.state, "repo", None)
     if repo is None:
         app.state.repo = Repo()
 
-    # Set an instance of the Clients with access to the Shared Repository
+    # Set instances of the Clients with access to the Shared Repository
     client_a = app.state.client_a = ClientA(app.state.repo)
     client_b = app.state.client_b = ClientB(app.state.repo)
 
@@ -47,17 +47,18 @@ async def manage_client_lifespan(app: Litestar) -> AsyncGenerator[None, None]:
     async with asyncio.TaskGroup() as tg:
         tg.create_task(client_a.loop())
         tg.create_task(client_b.loop())
-    try:
-        yield
-    finally:
-        await client_a.dispose()
-        await client_b.dispose()
+        try:
+            yield
+        finally:
+            client_a.dispose()
+            client_b.dispose()
+
 
 @get("/", sync_to_thread=False)
 def current_state(state: State) -> tuple[int, int]:
     """Handler function that returns a the current values on the shared data repository."""
     got = state.repo.current_values()
-    logger.info("Repo value in handler from `State`: %s whose creator was %s", got, state.repo.creator)
+    logger.info("Repo value: %s", got)
     return got
 
 @put("/clear_a", sync_to_thread=False)
