@@ -1,6 +1,6 @@
 """
 After feedback from @provinzkraut
-24-03-08
+24-03-10
 
 Objective: Implement an efficient app with two clients and Litestar running
 concurrently. All of them should be able to retrieve and store information in
@@ -12,6 +12,7 @@ import logging
 import asyncio
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+from typing import Literal
 
 # Repo is the intended shared data repository
 from repo import Repo
@@ -28,15 +29,21 @@ from litestar.datastructures import State
 logger = logging.getLogger(__name__)
 
 
+class MyState(State):
+    repo: Repo
+    client_a: ClientA | None
+    client_b: ClientB | None
+
+
+async def get_repo(state: MyState) -> Repo:
+    return state.repo
+
+
 @asynccontextmanager
 async def manage_client_lifespan(app: Litestar) -> AsyncGenerator[None, None]:
     """
     Runs instances of the Clients A and B
     """
-    # Set an instance of the Shared Repository if it does not exists already
-    repo = getattr(app.state, "repo", None)
-    if repo is None:
-        app.state.repo = Repo()
 
     # Set instances of the Clients with access to the Shared Repository
     client_a = app.state.client_a = ClientA(app.state.repo)
@@ -55,28 +62,33 @@ async def manage_client_lifespan(app: Litestar) -> AsyncGenerator[None, None]:
 
 
 @get("/", sync_to_thread=False)
-def current_state(state: State) -> tuple[int, int]:
+def current_state(repo: Repo) -> tuple[int, int]:
     """Handler function that returns a the current values on the shared data repository."""
-    got = state.repo.current_values()
+    got = repo.current_values()
     logger.info("Repo value: %s", got)
     return got
 
-@put("/clear_a", sync_to_thread=False)
-def clear_a(state: State) -> tuple[int, int]:
-    """Handler function that clears the counter for A."""
-    got = state.repo.clear_counter_a()
-    logger.info("Repo value in handler from `State`: %s after clearing A", got)
+
+@put("/clear/{counter: str}", sync_to_thread=False)
+def clear(repo: Repo, counter: Literal["a", "b"]) -> tuple[int, int]:
+    """Handler function that clears the selected counter."""
+    if counter == 'a':
+        got = repo.clear_counter_a()
+        logger.info("Repo value after clearing A: %s", got)
+    else:
+        got = repo.clear_counter_b()
+        logger.info("Repo value after clearing B: %s", got)
     return got
 
-@put("/clear_b", sync_to_thread=False)
-def clear_b(state: State) -> tuple[int, int]:
-    """Handler function that clears the counter for B."""
-    got = state.repo.clear_counter_b()
-    logger.info("Repo value in handler from `State`: %s after clearing B", got)
-    return got
 
-
-app = Litestar(lifespan=[manage_client_lifespan], route_handlers=[current_state, clear_a, clear_b])
+app = Litestar(
+    lifespan=[manage_client_lifespan],
+    route_handlers=[current_state, clear],
+    state=State({"repo": Repo()}),
+    dependencies={
+        "repo": get_repo,
+    }
+)
 
 
 if __name__ == "__main__":
