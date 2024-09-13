@@ -1,2 +1,2 @@
-litestar ~= 2.10.0	              	# REST API
+litestar ~= 2.11.0	              	# REST API
 uvicorn ~= 0.30.6                   # ASGI web server
